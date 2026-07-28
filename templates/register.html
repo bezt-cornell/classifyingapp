@@ -3,26 +3,9 @@
 {% block title %}Register{% endblock %}
 
 {% block content %}
-<!-- Register Form -->
 <div class="container">
-    <h2>Register</h2>
-    <form method="POST" action="{{ url_for('register') }}">
-        {{ form.hidden_tag() }}
-        <div class="form-group">
-            {{ form.username.label }} {{ form.username(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.email.label }} {{ form.email(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.password.label }} {{ form.password(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.confirm.label }} {{ form.confirm(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.submit(class="btn btn-primary") }}
-        </div>
-    </form>
+    <h2>Register with Google</h2>
+    <p>Registration is handled through Google OAuth. Please sign in using the button below.</p>
+    <a class="btn btn-primary" href="{{ url_for('login_google') }}">Register / Sign in with Google</a>
 </div>
 {% endblock %}

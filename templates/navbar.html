@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Nav Bar</title>
     <!-- Bootstrap CSS -->
-    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" rel="stylesheet">
-    <!-- <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootswatch@5.2.3/dist/lux/bootstrap.min.css"> -->
+    <link href="../static/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <style>
     .search-bar {
@@ -24,8 +23,8 @@
             <a class="navbar-brand" href="{{ url_for('index') }}">Home</a>
 
             <!-- Toggler for responsive design -->
-            <button class="navbar-toggler" type="button" data-toggle="collapse"
-                    data-target="#navbarSupportedContent"
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#navbarSupportedContent"
                     aria-controls="navbarSupportedContent" aria-expanded="false"
                     aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
@@ -33,7 +32,7 @@
 
             <!-- Collapsible content -->
             <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                <ul class="navbar-nav mr-auto mb-2 mb-lg-0">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
                         <form class="d-flex position-relative search-bar" method="POST" action="{{ url_for('index') }}">
@@ -54,7 +53,7 @@
                 </ul>
 
                 <!-- Right-aligned navigation items -->
-                <ul class="navbar-nav ml-auto">
+                <ul class="navbar-nav ms-auto">
                     {% if current_user.is_authenticated %}
                     <li class="nav-item">
                         <span class="navbar-text">{{ current_user.username }}</span>
@@ -75,9 +74,7 @@
         </div>
     </nav>
 
-    <!-- Bootstrap JS, Popper.js, and jQuery -->
-    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa/7tG1DI4p+1NR6D5Q+W7W6p" crossorigin="anonymous"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIyckI4fTkW1taJoV6quG7s8kb24pPHi2jzSi5J" crossorigin="anonymous"></script>
+    <!-- Bootstrap 5 JS bundle -->
+    <script src="../static/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

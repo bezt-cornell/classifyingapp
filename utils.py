@@ -21,6 +21,9 @@ import random
 import time
 import os
 
+# secrets
+from dotenv import load_dotenv
+
 # Image handling modules
 from PIL import Image
 import matplotlib
@@ -68,21 +71,22 @@ def make_celery(app):
     return celery
 
 
-def read_secrets():
-    secrets_file = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "secrets.txt"
-    )
-    with open(secrets_file, "r") as f:
-        secrets = f.read().splitlines()
-    return secrets
 
+# def read_secrets():
+#     secrets_file = os.path.join(
+#         os.path.dirname(os.path.abspath(__file__)), "..", "secrets.txt"
+#     )
+#     with open(secrets_file, "r") as f:
+#         secrets = f.read().splitlines()
+#     return secrets
 
-secrets = read_secrets()
+load_dotenv(dotenv_path=".env.kowalski")
+load_dotenv(dotenv_path=".env.mastcas")
 
-username_kowalski = secrets[0]
-password_kowalski = secrets[1]
-wsid_mastcasjobs = secrets[2]
-password_mastcasjobs = secrets[3]
+username_kowalski = os.getenv("username_kowalski")
+password_kowalski = os.getenv("password_kowalski")
+wsid_mastcasjobs = os.getenv("wsid_mastcasjobs")
+password_mastcasjobs = os.getenv("password_mastcasjobs")
 
 # Reading data from CSV
 column_names = [

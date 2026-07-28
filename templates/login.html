@@ -4,21 +4,10 @@
 
 {% block content %}
 
-<!-- Login Form -->
 <div class="container">
-    <h2>Login</h2>
-    <form method="POST" action="{{ url_for('login') }}">
-        {{ form.hidden_tag() }}
-        <div class="form-group">
-            {{ form.email.label }} {{ form.email(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.password.label }} {{ form.password(class="form-control") }}
-        </div>
-        <div class="form-group">
-            {{ form.submit(class="btn btn-primary") }}
-        </div>
-    </form>
+    <h2>Login with Google</h2>
+    <p>Please authenticate with Google to access the classification tools.</p>
+    <a class="btn btn-primary" href="{{ url_for('login_google') }}">Sign in with Google</a>
 </div>
 
 {% endblock %}

@@ -4,6 +4,12 @@ Flask-SQLAlchemy
 Flask-Login
 Flask-WTF
 
+# secrets
+python-dotenv
+
+#OAuth
+Authlib
+
 # Marshmallow (optional, remove if not used)
 Flask-Marshmallow
 

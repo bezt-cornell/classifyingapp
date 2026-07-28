@@ -24,4 +24,8 @@ static/light_curves/
 _pycache__/
 class_app.db
 static/wise_plots/
-
+venv
+.venv
+.env
+.env.kowalski
+.env.mastcas
