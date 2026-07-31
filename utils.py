@@ -30,6 +30,9 @@ import matplotlib
 
 matplotlib.use("Agg")  # Use a non-interactive backend
 import matplotlib.pyplot as plt
+# set integrated font family to prevent font lookup
+plt.rcParams["font.family"] = "DejaVu Sans"
+plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 import mpld3
 from mpld3 import fig_to_html, plugins
 

@@ -9,6 +9,7 @@ import time
 import logging
 from celery import shared_task
 
+from dotenv import load_dotenv
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy import units as u
@@ -35,6 +36,9 @@ from vlass_utils import get_vlass_data, run_search
 
 from threading import Thread
 from cachetools import TTLCache
+
+#
+load_dotenv(dotenv_path=".env.google")
 
 # Initialize the Kowalski session
 kowalski_session = logon()
@@ -75,16 +79,16 @@ db.init_app(class_app)
 login_manager = LoginManager()
 login_manager.init_app(class_app)
 login_manager.login_view = 'login'
-
 oauth = OAuth(class_app)
 oauth.register(
     name='google',
-    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
-    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
-    access_token_url='https://oauth2.googleapis.com/token',
-    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    client_id=os.getenv("client_id"),
+    client_secret=os.getenv("client_secret"),
+    access_token_url=os.getenv("token_uri"),
+    authorize_url=os.getenv("auth_uri"),
     api_base_url='https://www.googleapis.com/oauth2/v1/',
-    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',  # This is only needed if using openId to fetch user info
     client_kwargs={'scope': 'openid email profile'},
 )
 
