@@ -54,23 +54,23 @@ logging.basicConfig(level=logging.DEBUG,
                     ])
 # Create flask app instance
 class_app = Flask(__name__)
-class_app.config["SQLALCHEMY_DATABASE_URI"] = 'sqlite:///' + os.path.join(basedir, 'class_app.db')
-class_app.config['SECRET_KEY'] = 'your_secret_key_here'
+class_app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL", 'sqlite:///' + os.path.join(basedir, 'class_app.db')
+)
+class_app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key_here")
+class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lower() == "true"
+class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Create Celery instance for background info fetching
 class_app.config.update(
-    CELERY_BROKER_URL='redis://localhost:6379/0',
-    CELERY_RESULT_BACKEND='redis://localhost:6379/0'
+    CELERY_BROKER_URL=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
+    CELERY_RESULT_BACKEND=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
 
 celery = make_celery(class_app)
 
 # Create a cache to store prefetched transient data
 transient_cache = TTLCache(maxsize=10, ttl=600)
-
-# Initialize CSRF Protection
-class_app.config['SECRET_KEY'] = 'your_secret_key_here'
-class_app.config['WTF_CSRF_ENABLED'] = False 
 
 csrf = CSRFProtect(class_app)
 
@@ -628,4 +628,8 @@ if __name__ == '__main__':
     with class_app.app_context():
         db.create_all()
         load_transients()
-    class_app.run(debug=True, port=5001)
+    class_app.run(
+        debug=os.getenv("FLASK_DEBUG", "False").lower() == "true",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", "8000"))
+    )
