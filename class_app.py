@@ -277,7 +277,7 @@ def classify_source(source_id):
         user_id = current_user.get_id()
         cached_transient = transient_cache.get(user_id)
         if not (cached_transient and cached_transient.get('status') == 'complete' and cached_transient.get('source_id') == source_id):
-            thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id))
+            thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id, source_id))
             thread.start()
 
         return response
@@ -293,14 +293,17 @@ def classify_source(source_id):
         flash(f'An error occurred: {str(e)}')
         return redirect(url_for('index'))
 
-def prefetch_transient_data(kowalski_session, user_id):
-    """Prefetch data for the next transient."""
-    with class_app.app_context():  # Push application context manually
+def prefetch_transient_data(kowalski_session, user_id, last_source_id=None):
+    """Prefetch data for the next transient without touching request-scoped Flask state."""
+    with class_app.app_context():
         try:
-            next_source_id = get_random_id(user_id=user_id)
+            next_source_id = get_random_id(user_id=user_id, last_source_id=last_source_id)
+            if not next_source_id:
+                transient_cache[user_id] = {'status': 'empty'}
+                return
+
             prefetched_data = fetch_transient_data(kowalski_session, next_source_id)
             if prefetched_data:
-                # Store the prefetched data in the cache instead of session
                 transient_cache[user_id] = {
                     'data': prefetched_data,
                     'source_id': next_source_id,
@@ -466,7 +469,7 @@ def export_test_transients():
 
     return send_file(output, as_attachment=True, download_name='test_transients.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-def get_random_id(user_id):
+def get_random_id(user_id, last_source_id=None):
     """Return a random, not-yet-classified source_id for the given user.
 
     Tries, in order:
@@ -477,10 +480,9 @@ def get_random_id(user_id):
     """
     test_transients_ids = load_test_transients_ids()
     if not test_transients_ids:
-        flash('No test transients available.', 'danger')
-        return redirect(url_for('index'))
+        logging.warning('No test transients available.')
+        return None
 
-    last_random_source_id = session.get("last_random_source_id")
     try:
         user_id_int = int(user_id)
     except Exception:
@@ -500,10 +502,10 @@ def get_random_id(user_id):
     # Build candidate pools with progressive relaxation
     unclassified = [sid for sid in test_transients_ids if sid not in classified_ids]
     unclassified_not_last = [
-        sid for sid in unclassified if sid != last_random_source_id
+        sid for sid in unclassified if sid != last_source_id
     ]
     not_last = [
-        sid for sid in test_transients_ids if sid != last_random_source_id
+        sid for sid in test_transients_ids if sid != last_source_id
     ]
 
     if unclassified_not_last:
@@ -537,10 +539,10 @@ def random_transient():
 
         if source_id == last_source_id:
             # Treat as if there is no usable cache to satisfy UX requirement.
-            new_source_id = get_random_id(user_id=user_id)
+            new_source_id = get_random_id(user_id=user_id, last_source_id=last_source_id)
 
             # Start prefetching immediately for the following click
-            thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id))
+            thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id, new_source_id))
             thread.start()
 
             session["last_random_source_id"] = new_source_id
@@ -571,7 +573,7 @@ def random_transient():
         data['vlass_images'] = session.pop('vlass_images', [])
         
         # Start prefetching the next transient in a separate thread
-        thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id))
+        thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id, source_id))
         thread.start()
 
         session["last_random_source_id"] = source_id
@@ -580,10 +582,13 @@ def random_transient():
     else:
         # No valid prefetched data, fetch a new random transient
         logging.debug("No valid prefetched data found. Getting new random ID.")
-        new_source_id = get_random_id(user_id=user_id)
+        new_source_id = get_random_id(user_id=user_id, last_source_id=session.get("last_random_source_id"))
+        if not new_source_id:
+            flash('No test transients available.', 'danger')
+            return redirect(url_for('index'))
 
         # Start prefetching immediately since we know we need new data
-        thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id))
+        thread = Thread(target=prefetch_transient_data, args=(kowalski_session, user_id, new_source_id))
         thread.start()
         session["last_random_source_id"] = new_source_id
         return redirect(url_for('classify_source', source_id=new_source_id))
