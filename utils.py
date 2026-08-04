@@ -83,13 +83,74 @@ def make_celery(app):
 #         secrets = f.read().splitlines()
 #     return secrets
 
-load_dotenv(dotenv_path=".env.kowalski")
-load_dotenv(dotenv_path=".env.mastcas")
+if os.getenv("FLASK_ENV") == "development":
+    print("Loading secrets from .env files for local development...")
+    load_dotenv(dotenv_path=".env.kowalski")
+    load_dotenv(dotenv_path=".env.mastcas")
+    username_kowalski = os.getenv("username_kowalski")
+    password_kowalski = os.getenv("password_kowalski")
+    wsid_mastcasjobs = os.getenv("wsid_mastcasjobs")
+    password_mastcasjobs = os.getenv("password_mastcasjobs")
+else:
+    # Load secrets from AWS Secrets Manager
+    print("Loading secrets from AWS Secrets Manager for production...")
+    import boto3
+    from botocore.exceptions import ClientError
 
-username_kowalski = os.getenv("username_kowalski")
-password_kowalski = os.getenv("password_kowalski")
-wsid_mastcasjobs = os.getenv("wsid_mastcasjobs")
-password_mastcasjobs = os.getenv("password_mastcasjobs")
+    def get_secret(secret_name, region_name):
+        # Create a Secrets Manager client
+        session = boto3.session.Session()
+        client = session.client(
+            service_name="secretsmanager", region_name=region_name
+        )
+
+        try:
+            response = client.get_secret_value(SecretId=secret_name)
+        except ClientError as e:
+            print(f"Error retrieving secret: {e}")
+            raise e
+
+        # Decrypts secret using the associated KMS key
+        secret_string = response["SecretString"]
+        return json.loads(secret_string)
+
+    # Retrieve secrets for Kowalski and MAST CasJobs
+    kowalski_secrets = get_secret("kowalski-secrets", "us-east-1")
+    username_kowalski = kowalski_secrets.get("username_kowalski")
+    password_kowalski = kowalski_secrets.get("password_kowalski")
+
+    mastcasjobs_secrets = get_secret("mastcasjobs-secrets", "us-east-1")
+    wsid_mastcasjobs = mastcasjobs_secrets.get("wsid_mastcasjobs")
+    password_mastcasjobs = mastcasjobs_secrets.get("password_mastcasjobs")
+
+
+def get_google_oauth_credentials():
+    secret_name = "your-google-oauth-secret-name"
+    region_name = "us-east-1"  # Change to your AWS region
+
+    # Create a Secrets Manager client
+    session = boto3.session.Session()
+    client = session.client(
+        service_name='secretsmanager',
+        region_name=region_name
+    )
+
+    try:
+        response = client.get_secret_value(SecretId=secret_name)
+    except ClientError as e:
+        print(f"Error retrieving secret: {e}")
+        raise e
+
+    # Decrypts secret using the associated KMS key
+    secret_string = response['SecretString']
+    
+    # Parse the JSON string into a Python dictionary
+    credentials = json.loads(secret_string)
+    
+    client_id = credentials.get('clientId')
+    client_secret = credentials.get('clientSecret')
+    
+    return client_id, client_secret
 
 # Reading data from CSV
 column_names = [

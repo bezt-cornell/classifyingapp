@@ -7,7 +7,10 @@ from datetime import datetime
 from io import BytesIO
 import time
 import logging
+from urllib.parse import quote
 from celery import shared_task
+import boto3
+from botocore.exceptions import ClientError
 
 from dotenv import load_dotenv
 import pandas as pd
@@ -30,7 +33,8 @@ from models import db, User, Transient, Classification
 from utils import (
     get_pos, logon,  
     get_most_confident_classification, 
-    make_celery, fetch_transient_data
+    make_celery, fetch_transient_data,
+    get_google_oauth_credentials
 )
 from vlass_utils import get_vlass_data, run_search
 
@@ -38,7 +42,10 @@ from threading import Thread
 from cachetools import TTLCache
 
 #
-load_dotenv(dotenv_path=".env.google")
+if os.getenv("FLASK_ENV") == "development":
+    load_dotenv(dotenv_path=".env.google")
+
+
 
 # Initialize the Kowalski session
 kowalski_session = logon()
@@ -54,9 +61,6 @@ logging.basicConfig(level=logging.DEBUG,
                     ])
 # Create flask app instance
 class_app = Flask(__name__)
-class_app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
-    "DATABASE_URL", 'sqlite:///' + os.path.join(basedir, 'class_app.db')
-)
 class_app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key_here")
 class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lower() == "true"
 class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -73,6 +77,107 @@ celery = make_celery(class_app)
 transient_cache = TTLCache(maxsize=10, ttl=600)
 
 csrf = CSRFProtect(class_app)
+
+
+def get_secrets_manager_client():
+    kwargs = {"region_name": os.getenv("AWS_REGION", "us-east-1")}
+    return boto3.client("secretsmanager", **kwargs)
+
+
+def get_secret(secret_name):
+    if not secret_name:
+        return {}
+    try:
+        client = get_secrets_manager_client()
+        response = client.get_secret_value(SecretId=secret_name)
+        return json.loads(response["SecretString"])
+    except ClientError as exc:
+        logging.warning("Unable to read secret %s: %s", secret_name, exc)
+    except Exception as exc:
+        logging.warning("Unable to parse secret %s: %s", secret_name, exc)
+    return {}
+
+
+def use_aws_secrets_manager():
+    return os.getenv("USE_AWS_SECRETS_MANAGER", "false").lower() == "true"
+
+
+def build_database_uri():
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+
+    if use_aws_secrets_manager():
+        secret_name = os.getenv("AWS_SECRETS_NAME", "")
+        if secret_name:
+            secrets = get_secret(secret_name)
+            if secrets:
+                if secrets.get("DATABASE_URL"):
+                    os.environ["DATABASE_URL"] = secrets["DATABASE_URL"]
+                    return secrets["DATABASE_URL"]
+
+                db_engine = secrets.get("engine") or os.getenv("DB_ENGINE", "postgres")
+                db_host = secrets.get("host") or os.getenv("DB_HOST") or os.getenv("RDS_HOSTNAME")
+                db_port = secrets.get("port") or os.getenv("DB_PORT") or "5432"
+                db_name = secrets.get("dbname") or secrets.get("database") or os.getenv("DB_NAME")
+                db_user = secrets.get("username") or os.getenv("DB_USERNAME")
+                db_password = secrets.get("password") or os.getenv("DB_PASSWORD")
+
+                if db_host and db_name and db_user and db_password:
+                    db_engine = db_engine.lower()
+                    if db_engine.startswith("postgres"):
+                        db_engine = "postgresql"
+                    elif db_engine.startswith("mysql"):
+                        db_engine = "mysql+pymysql"
+
+                    uri = f"{db_engine}://{quote(db_user)}:{quote(db_password)}@{db_host}:{db_port}/{db_name}"
+                    if os.getenv("DB_SSLMODE", "true").lower() == "true" and db_engine.startswith("postgresql"):
+                        uri = f"{uri}?sslmode=require"
+                    os.environ["DATABASE_URL"] = uri
+                    return uri
+
+    db_host = os.getenv("DB_HOST") or os.getenv("RDS_HOSTNAME")
+    if db_host:
+        db_engine = os.getenv("DB_ENGINE", "postgres")
+        db_port = os.getenv("DB_PORT", "5432")
+        db_name = os.getenv("DB_NAME")
+        db_user = os.getenv("DB_USERNAME")
+        db_password = os.getenv("DB_PASSWORD")
+        if db_name and db_user and db_password:
+            db_engine = db_engine.lower()
+            if db_engine.startswith("postgres"):
+                db_engine = "postgresql"
+            elif db_engine.startswith("mysql"):
+                db_engine = "mysql+pymysql"
+            uri = f"{db_engine}://{quote(db_user)}:{quote(db_password)}@{db_host}:{db_port}/{db_name}"
+            if os.getenv("DB_SSLMODE", "true").lower() == "true" and db_engine.startswith("postgresql"):
+                uri = f"{uri}?sslmode=require"
+            os.environ["DATABASE_URL"] = uri
+            return uri
+
+    return 'sqlite:///' + os.path.join(basedir, 'class_app.db')
+
+
+def load_aws_secrets():
+    if not use_aws_secrets_manager():
+        return
+    secret_name = os.getenv("AWS_SECRETS_NAME", "")
+    if not secret_name:
+        return
+    secrets = get_secret(secret_name)
+    if not secrets:
+        return
+
+    if "SECRET_KEY" in secrets:
+        class_app.config["SECRET_KEY"] = secrets["SECRET_KEY"]
+    if "client_id" in secrets:
+        os.environ["client_id"] = secrets["client_id"]
+    if "client_secret" in secrets:
+        os.environ["client_secret"] = secrets["client_secret"]
+
+
+load_aws_secrets()
+class_app.config["SQLALCHEMY_DATABASE_URI"] = build_database_uri()
 
 # Initializing database, and login manager with Flask 
 db.init_app(class_app)

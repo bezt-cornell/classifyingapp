@@ -1,3 +1,4 @@
+# includes .env* for local development, but not for production
 __pycache__/
 *.py[cod]
 *.pyo
@@ -5,7 +6,6 @@ __pycache__/
 *.db
 *.sqlite3
 *.log
-.env*
 .venv/
 venv/
 .git/
