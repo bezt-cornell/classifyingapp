@@ -4,7 +4,6 @@ import csv
 import random
 import base64
 import binascii
-import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from io import BytesIO
@@ -20,7 +19,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy import units as u
-from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, session, send_file, make_response
+from flask import Flask, app, jsonify, render_template, request, redirect, url_for, flash, session, send_file, make_response, g
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from flask_paginate import Pagination, get_page_parameter, get_page_args
 from flask_sqlalchemy import SQLAlchemy
@@ -32,6 +31,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
+from ALBLoginManager import ALBLoginManager, alb_login_required
+
+alb_manager = ALBLoginManager(app, region="us-east-1")
 
 # Imports from local files
 from models import db, User, Transient, Classification
@@ -57,48 +59,13 @@ kowalski_session = logon()
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-
-def configure_logging():
-    configured_log_path = os.getenv("DEBUG_LOG_PATH") or os.path.join(basedir, "debug.log")
-    log_path = configured_log_path if os.path.isabs(configured_log_path) else os.path.abspath(configured_log_path)
-    log_dir = os.path.dirname(log_path)
-    if log_dir:
-        os.makedirs(log_dir, exist_ok=True)
-
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(logging.DEBUG)
-    stream_handler.setFormatter(formatter)
-
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.propagate = False
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(stream_handler)
-
-    app_logger = logging.getLogger("class_app")
-    app_logger.handlers.clear()
-    app_logger.setLevel(logging.DEBUG)
-    app_logger.propagate = False
-    app_logger.addHandler(file_handler)
-    app_logger.addHandler(stream_handler)
-
-    for noisy_logger_name in ("werkzeug", "gunicorn", "gunicorn.error", "urllib3", "boto3", "botocore"):
-        logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
-
-
-configure_logging()
-print("[STARTUP] class_app module loaded and logging configured", flush=True)
-logging.getLogger("class_app").info("[STARTUP] class_app module loaded and logging configured")
-print(f"[STARTUP] logging target: {os.getenv('DEBUG_LOG_PATH') or os.path.join(basedir, 'debug.log')}", flush=True)
-
-
+# Setup logging for debugging
+logging.basicConfig(level=logging.DEBUG, 
+                    format='%(asctime)s [%(levelname)s] %(message)s',
+                    handlers=[
+                        logging.FileHandler("debug.log"),
+                        logging.StreamHandler()
+                    ])
 def use_aws_secrets_manager():
     return os.getenv("USE_AWS_SECRETS_MANAGER", "false").lower() == "true"
 
@@ -289,20 +256,9 @@ def inject_search_form():
     return dict(search_form=SearchForm())
 
 
-def log_auth_debug(message, *args):
-    rendered = message % args if args else message
-    class_app.logger.info("[AUTH DEBUG] %s", rendered)
-    print(f"[AUTH DEBUG] {rendered}", flush=True)
-    sys.stderr.write(f"[AUTH DEBUG] {rendered}\n")
-    sys.stderr.flush()
-
-
 @class_app.before_request
 def log_request_debug():
-    class_app.logger.info("[REQUEST DEBUG] method=%s path=%s headers=%s", request.method, request.path, dict(request.headers))
-    print(f"[REQUEST DEBUG] method={request.method} path={request.path}", flush=True)
-    sys.stderr.write(f"[REQUEST DEBUG] method={request.method} path={request.path}\n")
-    sys.stderr.flush()
+    logging.info("[REQUEST DEBUG] method=%s path=%s headers=%s", request.method, request.path, dict(request.headers))
 
 
 def decode_oidc_token_payload(token):
@@ -331,7 +287,7 @@ def decode_oidc_token_payload(token):
 
 def get_authenticated_user_identity():
     """Read the authenticated identity from headers or an ALB OIDC token."""
-    log_auth_debug("path=%s headers=%s", request.path, dict(request.headers))
+    logging.info("[AUTH DEBUG] path=%s headers=%s", request.path, dict(request.headers))
 
     email = request.headers.get("X-Forwarded-Email") or request.headers.get("X-User-Email")
     username = request.headers.get("X-Forwarded-User") or request.headers.get("X-User-Name")
@@ -340,7 +296,7 @@ def get_authenticated_user_identity():
         oidc_token = request.headers.get("X-Amzn-Oidc-Data") or request.headers.get("x-amzn-oidc-data")
         if oidc_token:
             claims = decode_oidc_token_payload(oidc_token)
-            log_auth_debug("decoded OIDC claims=%s", claims)
+            logging.info("[AUTH DEBUG] decoded OIDC claims=%s", claims)
             if claims:
                 email = claims.get("email") or claims.get("sub")
                 username = claims.get("preferred_username") or claims.get("username") or claims.get("name")
@@ -398,13 +354,6 @@ def create_or_get_user_from_identity(identity):
         logging.exception("Unexpected error while creating/updating user from load-balancer identity for %s", email)
         return None
 
-
-@class_app.route('/register', methods=['GET'])
-def register():
-    """Redirect registration to the login flow handled by the load balancer."""
-    return redirect(url_for('login'))
-
-
 @class_app.route('/login', methods=['GET'])
 def login():
     """Render the login page or redirect an already-authenticated user."""
@@ -461,7 +410,6 @@ def logout():
 @class_app.route('/debug_auth')
 def debug_auth():
     """Expose auth/session diagnostics for load-balancer-based login troubleshooting."""
-    log_auth_debug("debug_auth route invoked for path=%s", request.path)
     identity = get_authenticated_user_identity()
     oidc_token = request.headers.get("X-Amzn-Oidc-Data") or request.headers.get("x-amzn-oidc-data")
     payload = {
@@ -486,6 +434,7 @@ def debug_auth():
 
 
 @class_app.route('/', methods=['GET', 'POST'])
+@alb_login_required
 def index():
     """Render the main search form and handle search requests."""
     form = SearchForm()
