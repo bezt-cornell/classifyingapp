@@ -23,7 +23,6 @@ from flask_paginate import Pagination, get_page_parameter, get_page_args
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
-from authlib.integrations.flask_client import OAuth
 from sqlalchemy import inspect, text
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
@@ -222,19 +221,6 @@ db.init_app(class_app)
 login_manager = LoginManager()
 login_manager.init_app(class_app)
 login_manager.login_view = 'login'
-oauth = OAuth(class_app)
-oauth.register(
-    name='google',
-    client_id=os.getenv("client_id"),
-    client_secret=os.getenv("client_secret"),
-    access_token_url=os.getenv("token_uri"),
-    authorize_url=os.getenv("auth_uri"),
-    api_base_url='https://www.googleapis.com/oauth2/v1/',
-    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    userinfo_endpoint='https://openidconnect.googleapis.com/v1/userinfo',  # This is only needed if using openId to fetch user info
-    client_kwargs={'scope': 'openid email profile'},
-)
-
 # Define forms for search, registration, and login
 class SearchForm(FlaskForm):
     source_id = StringField('Source ID', validators=[DataRequired()])
@@ -250,79 +236,94 @@ def inject_search_form():
     """Inject the search form into the context of all templates."""
     return dict(search_form=SearchForm())
 
+def get_authenticated_user_identity():
+    """Read the authenticated identity from headers set by the load balancer."""
+    email = request.headers.get("X-Forwarded-Email") or request.headers.get("X-User-Email")
+    if not email:
+        return None
+
+    email = email.strip().lower()
+    if not email:
+        return None
+
+    username = request.headers.get("X-Forwarded-User") or request.headers.get("X-User-Name")
+    if not username:
+        username = email.split("@", 1)[0]
+
+    return {
+        "email": email,
+        "username": username,
+        "provider": "load_balancer",
+    }
+
+
+def create_or_get_user_from_identity(identity):
+    if not identity:
+        return None
+
+    email = identity["email"]
+    username = identity["username"]
+    provider = identity["provider"]
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            username=username,
+            email=email,
+            oauth_provider=provider,
+            oauth_id=email,
+        )
+        db.session.add(user)
+        db.session.commit()
+    elif not user.oauth_provider or not user.oauth_id:
+        user.oauth_provider = provider
+        user.oauth_id = email
+        db.session.commit()
+
+    return user
+
+
 @class_app.route('/register', methods=['GET'])
 def register():
-    """Redirect registration to OAuth login."""
-    flash('Registration is handled through Google OAuth. Please sign in instead.')
+    """Redirect registration to the login flow handled by the load balancer."""
     return redirect(url_for('login'))
+
 
 @class_app.route('/login', methods=['GET'])
 def login():
-    """Render the OAuth login page."""
+    """Render the login page or redirect an already-authenticated user."""
     if current_user.is_authenticated:
         return redirect(url_for('index'))
-    return render_template('login.html')
 
-def get_oauth_redirect_uri():
-    configured_uri = os.getenv("OAUTH_REDIRECT_URI")
-    if configured_uri:
-        return configured_uri
-    return url_for('authorize', _external=True)
-
-
-@class_app.route('/login/google')
-def login_google():
-    """Redirect the user to Google for OAuth authentication."""
-    redirect_uri = get_oauth_redirect_uri()
-    return oauth.google.authorize_redirect(redirect_uri)
-
-
-def handle_oauth_callback():
-    """Handle the OAuth callback from the identity provider."""
-    try:
-        token = oauth.google.authorize_access_token()
-        user_info = oauth.google.get('userinfo').json()
-    except Exception as exc:
-        logging.exception("OAuth callback failed")
-        flash('Authentication failed. Please try again.')
-        return redirect(url_for('login'))
-
-    if not user_info or 'email' not in user_info:
-        flash('Authentication failed. Please try again.')
-        return redirect(url_for('login'))
-
-    provider = 'google'
-    oauth_id = user_info.get('sub')
-    email = user_info.get('email')
-    username = user_info.get('name') or email.split('@')[0]
-
-    user = User.query.filter_by(oauth_provider=provider, oauth_id=oauth_id).first()
-    if not user:
-        user = User.query.filter_by(email=email).first()
+    identity = get_authenticated_user_identity()
+    if identity:
+        user = create_or_get_user_from_identity(identity)
         if user:
-            user.oauth_provider = provider
-            user.oauth_id = oauth_id
-        else:
-            user = User(
-                username=username,
-                email=email,
-                oauth_provider=provider,
-                oauth_id=oauth_id
-            )
-            db.session.add(user)
-        db.session.commit()
+            login_user(user, remember=True)
+            flash('Logged in successfully.', 'success')
+            return redirect(url_for('index'))
 
-    login_user(user, remember=True)
-    flash('Logged in successfully.', 'success')
-    return redirect(url_for('index'))
+    return render_template('login.html')
 
 
 @class_app.route('/authorize')
 @class_app.route('/oauth2/idpresponse')
 @class_app.route('/login/google/callback')
 def authorize():
-    """Handle the OAuth callback from Google or an identity provider redirect."""
-    return handle_oauth_callback()
+    """Handle the identity that the load balancer has already authenticated."""
+    identity = get_authenticated_user_identity()
+    if not identity:
+        flash('Authentication failed. Please try again.')
+        return redirect(url_for('login'))
+
+    user = create_or_get_user_from_identity(identity)
+    if not user:
+        flash('Authentication failed. Please try again.')
+        return redirect(url_for('login'))
+
+    login_user(user, remember=True)
+    flash('Logged in successfully.', 'success')
+    return redirect(url_for('index'))
 
 @class_app.route('/logout')
 @login_required
