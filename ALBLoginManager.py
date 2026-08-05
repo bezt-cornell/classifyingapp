@@ -21,7 +21,7 @@ class ALBLoginManager:
   def get_public_key(self, kid):
     """Fetches and caches the AWS public key."""
     if kid not in self._key_cache:
-      url = f"https://auth.elb.{self.region}://{kid}"
+      url = f"https://auth.elb.{self.region}.amazonaws.com://{kid}"
       response = requests.get(url, timeout=5)
       response.raise_for_status()
       self._key_cache[kid] = response.text
