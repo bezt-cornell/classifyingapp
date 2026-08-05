@@ -290,7 +290,7 @@ def load_user_from_alb(request):
         # Find or auto-provision the user in your database
         user = User.query.filter_by(email=email).first()
         if not user and email:
-            user = User(email=email)
+            user = User(email=email, username=email)
             db.session.add(user)
             db.session.commit()
             
