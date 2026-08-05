@@ -68,7 +68,8 @@ logging.basicConfig(
 )
 
 _secret_cache = None
-
+secret_name = os.getenv("AWS_SECRET_NAME")
+region_name = os.getenv("AWS_REGION")
 
 def get_secret_cache(region_name):
     global _secret_cache
@@ -121,18 +122,22 @@ else:
     print("Loading secrets from AWS Secrets Manager for production...")
 
     # Retrieve secrets for Kowalski and MAST CasJobs
-    kowalski_secrets = get_secret("kowalski-secrets", "us-east-1")
-    username_kowalski = kowalski_secrets.get("username_kowalski")
-    password_kowalski = kowalski_secrets.get("password_kowalski")
+    secrets = get_secret(secret_name, region_name)
 
-    mastcasjobs_secrets = get_secret("mastcasjobs-secrets", "us-east-1")
-    wsid_mastcasjobs = mastcasjobs_secrets.get("wsid_mastcasjobs")
-    password_mastcasjobs = mastcasjobs_secrets.get("password_mastcasjobs")
+    username_kowalski = secrets.get("username_kowalski")
+    password_kowalski = secrets.get("password_kowalski")
+
+    wsid_mastcasjobs = secrets.get("wsid_mastcasjobs")
+    password_mastcasjobs = secrets.get("password_mastcasjobs")
 
 
 def get_google_oauth_credentials():
-    secret_name = os.getenv("GOOGLE_OAUTH_SECRET_NAME", "your-google-oauth-secret-name")
-    region_name = os.getenv("AWS_REGION", "us-east-1")
+    if os.getenv("FLASK_ENV") == "development":
+        load_dotenv(dotenv_path=".env.google_oauth")
+        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+    else:
+        return client_id, client_secret
 
     credentials = get_secret(secret_name, region_name)
 
