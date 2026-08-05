@@ -2,6 +2,8 @@ import os
 import json
 import csv
 import random
+import base64
+import binascii
 from collections import Counter, defaultdict
 from datetime import datetime
 from io import BytesIO
@@ -256,18 +258,56 @@ def log_request_debug():
     logging.info("[REQUEST DEBUG] method=%s path=%s headers=%s", request.method, request.path, dict(request.headers))
 
 
+def decode_oidc_token_payload(token):
+    """Decode the payload from an unverified JWT-style OIDC token."""
+    if not token:
+        return None
+
+    token = token.strip()
+    if token.startswith("Bearer "):
+        token = token[7:].strip()
+
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+
+    payload_segment = parts[1]
+    payload_segment += "=" * (-len(payload_segment) % 4)
+
+    try:
+        decoded = base64.urlsafe_b64decode(payload_segment.encode("utf-8"))
+        return json.loads(decoded.decode("utf-8"))
+    except (ValueError, TypeError, binascii.Error, UnicodeDecodeError, json.JSONDecodeError):
+        logging.warning("Unable to decode OIDC token payload")
+        return None
+
+
 def get_authenticated_user_identity():
-    """Read the authenticated identity from headers set by the load balancer."""
+    """Read the authenticated identity from headers or an ALB OIDC token."""
     logging.info("[AUTH DEBUG] path=%s headers=%s", request.path, dict(request.headers))
+
     email = request.headers.get("X-Forwarded-Email") or request.headers.get("X-User-Email")
-    if not email:
-        return None
-
-    email = email.strip().lower()
-    if not email:
-        return None
-
     username = request.headers.get("X-Forwarded-User") or request.headers.get("X-User-Name")
+
+    if not email:
+        oidc_token = request.headers.get("X-Amzn-Oidc-Data") or request.headers.get("x-amzn-oidc-data")
+        if oidc_token:
+            claims = decode_oidc_token_payload(oidc_token)
+            logging.info("[AUTH DEBUG] decoded OIDC claims=%s", claims)
+            if claims:
+                email = claims.get("email") or claims.get("sub")
+                username = claims.get("preferred_username") or claims.get("username") or claims.get("name")
+
+    if not email:
+        return None
+
+    email = str(email).strip().lower()
+    if not email:
+        return None
+
+    if "@" not in email:
+        email = f"{email}@oidc.local"
+
     if not username:
         username = email.split("@", 1)[0]
 
@@ -375,17 +415,21 @@ def logout():
 def debug_auth():
     """Expose auth/session diagnostics for load-balancer-based login troubleshooting."""
     identity = get_authenticated_user_identity()
+    oidc_token = request.headers.get("X-Amzn-Oidc-Data") or request.headers.get("x-amzn-oidc-data")
     payload = {
         "is_authenticated": current_user.is_authenticated,
         "user_id": current_user.get_id() if current_user.is_authenticated else None,
         "user_email": current_user.email if current_user.is_authenticated else None,
         "session_keys": sorted(list(session.keys())),
         "identity": identity,
+        "oidc_token_present": bool(oidc_token),
+        "oidc_claims": decode_oidc_token_payload(oidc_token) if oidc_token else None,
         "headers": {
             "X-Forwarded-Email": request.headers.get("X-Forwarded-Email"),
             "X-User-Email": request.headers.get("X-User-Email"),
             "X-Forwarded-User": request.headers.get("X-Forwarded-User"),
             "X-User-Name": request.headers.get("X-User-Name"),
+            "X-Amzn-Oidc-Data": bool(oidc_token),
             "X-Forwarded-Proto": request.headers.get("X-Forwarded-Proto"),
             "X-Forwarded-Host": request.headers.get("X-Forwarded-Host"),
         },
