@@ -244,6 +244,12 @@ def inject_search_form():
     """Inject the search form into the context of all templates."""
     return dict(search_form=SearchForm())
 
+
+@class_app.before_request
+def log_request_debug():
+    logging.info("[REQUEST DEBUG] method=%s path=%s headers=%s", request.method, request.path, dict(request.headers))
+
+
 def get_authenticated_user_identity():
     """Read the authenticated identity from headers set by the load balancer."""
     logging.info("[AUTH DEBUG] path=%s headers=%s", request.path, dict(request.headers))
