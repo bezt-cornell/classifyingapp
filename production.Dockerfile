@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r re
 
 COPY . .
 
-RUN mkdir -p /app/static/light_curves /app/static/vlass_images /app/static/wise_plots
+RUN mkdir -p /app/static/light_curves /app/static/vlass_images /app/static/wise_plots /app/static/cutouts /app/static/background_images
 
 EXPOSE 5000
 
