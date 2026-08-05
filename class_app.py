@@ -4,6 +4,7 @@ import csv
 import random
 import base64
 import binascii
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from io import BytesIO
@@ -56,13 +57,32 @@ kowalski_session = logon()
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 
-# Setup logging for debugging
-logging.basicConfig(level=logging.DEBUG, 
-                    format='%(asctime)s [%(levelname)s] %(message)s',
-                    handlers=[
-                        logging.FileHandler("debug.log"),
-                        logging.StreamHandler()
-                    ])
+
+def configure_logging():
+    log_path = os.path.join(basedir, "debug.log")
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.DEBUG)
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+
+    for noisy_logger_name in ("werkzeug", "gunicorn", "gunicorn.error", "urllib3", "boto3", "botocore"):
+        logging.getLogger(noisy_logger_name).setLevel(logging.WARNING)
+
+
+configure_logging()
+
+
 def use_aws_secrets_manager():
     return os.getenv("USE_AWS_SECRETS_MANAGER", "false").lower() == "true"
 
@@ -253,9 +273,16 @@ def inject_search_form():
     return dict(search_form=SearchForm())
 
 
+def log_auth_debug(message, *args):
+    rendered = message % args if args else message
+    logging.info("[AUTH DEBUG] %s", rendered)
+    print(f"[AUTH DEBUG] {rendered}", flush=True)
+
+
 @class_app.before_request
 def log_request_debug():
     logging.info("[REQUEST DEBUG] method=%s path=%s headers=%s", request.method, request.path, dict(request.headers))
+    print(f"[REQUEST DEBUG] method={request.method} path={request.path}", flush=True)
 
 
 def decode_oidc_token_payload(token):
@@ -284,7 +311,7 @@ def decode_oidc_token_payload(token):
 
 def get_authenticated_user_identity():
     """Read the authenticated identity from headers or an ALB OIDC token."""
-    logging.info("[AUTH DEBUG] path=%s headers=%s", request.path, dict(request.headers))
+    log_auth_debug("path=%s headers=%s", request.path, dict(request.headers))
 
     email = request.headers.get("X-Forwarded-Email") or request.headers.get("X-User-Email")
     username = request.headers.get("X-Forwarded-User") or request.headers.get("X-User-Name")
@@ -293,7 +320,7 @@ def get_authenticated_user_identity():
         oidc_token = request.headers.get("X-Amzn-Oidc-Data") or request.headers.get("x-amzn-oidc-data")
         if oidc_token:
             claims = decode_oidc_token_payload(oidc_token)
-            logging.info("[AUTH DEBUG] decoded OIDC claims=%s", claims)
+            log_auth_debug("decoded OIDC claims=%s", claims)
             if claims:
                 email = claims.get("email") or claims.get("sub")
                 username = claims.get("preferred_username") or claims.get("username") or claims.get("name")
