@@ -248,7 +248,8 @@ db.init_app(class_app)
 print("[DB DEBUG] db.init_app(class_app) completed")
 login_manager = LoginManager()
 login_manager.init_app(class_app)
-login_manager.login_view = 'login'
+# login_manager.login_view = 'login'
+login_manager.login_view = None
 # Define forms for search, registration, and login
 class SearchForm(FlaskForm):
     source_id = StringField('Source ID', validators=[DataRequired()])

@@ -24,4 +24,4 @@ RUN mkdir -p /app/static/light_curves /app/static/vlass_images /app/static/wise_
 EXPOSE 5000
 
 #CMD ["gunicorn", "--bind", "0.0.0.0:5000", "class_app:class_app"]
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--forwarded-allow-ips='*'", "--access-logfile", "-", "--error-logfile", "-", "--capture-output", "--log-level", "info", "class_app:class_app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--access-logfile", "-", "--error-logfile", "-", "--capture-output", "--log-level", "info", "class_app:class_app"]
