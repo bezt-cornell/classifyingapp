@@ -214,10 +214,17 @@ def load_aws_secrets():
 
 load_secret_key_from_secrets()
 load_aws_secrets()
-class_app.config["SQLALCHEMY_DATABASE_URI"] = build_database_uri()
+configured_database_uri = build_database_uri()
+class_app.config["SQLALCHEMY_DATABASE_URI"] = configured_database_uri
+print("[DB DEBUG] configured_database_uri =", configured_database_uri)
+print("[DB DEBUG] USE_AWS_SECRETS_MANAGER =", os.getenv("USE_AWS_SECRETS_MANAGER", "false"))
+print("[DB DEBUG] AWS_SECRETS_NAME =", os.getenv("AWS_SECRETS_NAME", ""))
+print("[DB DEBUG] DB_HOST =", os.getenv("DB_HOST") or os.getenv("RDS_HOSTNAME"))
+print("[DB DEBUG] DATABASE_URL env =", os.getenv("DATABASE_URL"))
 
 # Initializing database, and login manager with Flask 
 db.init_app(class_app)
+print("[DB DEBUG] db.init_app(class_app) completed")
 login_manager = LoginManager()
 login_manager.init_app(class_app)
 login_manager.login_view = 'login'
@@ -785,13 +792,17 @@ def delete_classification(classification_id):
     return redirect(url_for('user_classifications'))
 
 with class_app.app_context():
+    print("[DB DEBUG] running db.create_all() in module startup")
     db.create_all()
+    print("[DB DEBUG] db.create_all() completed")
     load_transients()
     
 if __name__ == '__main__':
     # Initialize databases and load transients from csv
     with class_app.app_context():
+        print("[DB DEBUG] running db.create_all() in __main__")
         db.create_all()
+        print("[DB DEBUG] db.create_all() completed in __main__")
         load_transients()
     class_app.run(
         debug=os.getenv("FLASK_DEBUG", "False").lower() == "true",
