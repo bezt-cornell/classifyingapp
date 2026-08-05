@@ -57,5 +57,5 @@ plotly
 #AWS
 boto3
 
-jwt
+PyJWT
 
