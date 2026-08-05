@@ -15,8 +15,8 @@ services:
       AWS_REGION: "us-east-1"
       AWS_DEFAULT_REGION: "us-east-1"
       AWS_SECRETS_NAME: "ZTF_Prod_Secrets"
-      OAUTHLIB_INSECURE_TRANSPORT: "1"
-      AUTHLIB_INSECURE_TRANSPORT: "1"
+      OAUTHLIB_INSECURE_TRANSPORT: "0"
+      AUTHLIB_INSECURE_TRANSPORT: "0"
     depends_on:
       - redis
 
