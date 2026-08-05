@@ -24,6 +24,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from wtforms import StringField, SubmitField
@@ -272,22 +273,30 @@ def create_or_get_user_from_identity(identity):
     username = identity["username"]
     provider = identity["provider"]
 
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        user = User(
-            username=username,
-            email=email,
-            oauth_provider=provider,
-            oauth_id=email,
-        )
-        db.session.add(user)
-        db.session.commit()
-    elif not user.oauth_provider or not user.oauth_id:
-        user.oauth_provider = provider
-        user.oauth_id = email
-        db.session.commit()
-
-    return user
+    try:
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = User(
+                username=username,
+                email=email,
+                oauth_provider=provider,
+                oauth_id=email,
+            )
+            db.session.add(user)
+            db.session.commit()
+        elif not user.oauth_provider or not user.oauth_id:
+            user.oauth_provider = provider
+            user.oauth_id = email
+            db.session.commit()
+        return user
+    except SQLAlchemyError as exc:
+        db.session.rollback()
+        logging.exception("Failed to create or update user from load-balancer identity for %s", email)
+        return None
+    except Exception as exc:
+        db.session.rollback()
+        logging.exception("Unexpected error while creating/updating user from load-balancer identity for %s", email)
+        return None
 
 
 @class_app.route('/register', methods=['GET'])
@@ -304,12 +313,16 @@ def login():
 
     identity = get_authenticated_user_identity()
     if identity:
-        user = create_or_get_user_from_identity(identity)
-        if user:
-            login_user(user, remember=True)
-            flash('Logged in successfully.', 'success')
-            return redirect(url_for('index'))
+        try:
+            user = create_or_get_user_from_identity(identity)
+            if user:
+                login_user(user, remember=True)
+                flash('Logged in successfully.', 'success')
+                return redirect(url_for('index'))
+        except Exception:
+            logging.exception("Unexpected error during login flow")
 
+    flash('Authentication failed. Please try again.', 'danger')
     return render_template('login.html')
 
 
@@ -323,14 +336,19 @@ def authorize():
         flash('Authentication failed. Please try again.')
         return redirect(url_for('login'))
 
-    user = create_or_get_user_from_identity(identity)
-    if not user:
-        flash('Authentication failed. Please try again.')
-        return redirect(url_for('login'))
+    try:
+        user = create_or_get_user_from_identity(identity)
+        if not user:
+            flash('Authentication failed. Please try again.', 'danger')
+            return redirect(url_for('login'))
 
-    login_user(user, remember=True)
-    flash('Logged in successfully.', 'success')
-    return redirect(url_for('index'))
+        login_user(user, remember=True)
+        flash('Logged in successfully.', 'success')
+        return redirect(url_for('index'))
+    except Exception:
+        logging.exception("Unexpected error during authorize flow")
+        flash('Authentication failed. Please try again.', 'danger')
+        return redirect(url_for('login'))
 
 @class_app.route('/logout')
 @login_required
