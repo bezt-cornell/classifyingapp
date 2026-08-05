@@ -127,11 +127,19 @@ class_app.config["SECRET_KEY"] = secret_key
 class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lower() == "true"
 class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 class_app.config["PREFERRED_URL_SCHEME"] = os.getenv("PREFERRED_URL_SCHEME", "https")
-class_app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
+
+default_secure_cookie = os.getenv("SESSION_COOKIE_SECURE")
+if default_secure_cookie is None:
+    default_secure_cookie = os.getenv("FLASK_ENV", "").lower() != "development"
+class_app.config["SESSION_COOKIE_SECURE"] = str(default_secure_cookie).lower() == "true"
 class_app.config["SESSION_COOKIE_HTTPONLY"] = True
 class_app.config["SESSION_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 class_app.config["SESSION_COOKIE_NAME"] = os.getenv("SESSION_COOKIE_NAME", "session")
-class_app.config["REMEMBER_COOKIE_SECURE"] = os.getenv("REMEMBER_COOKIE_SECURE", "true").lower() == "true"
+
+remember_cookie_secure = os.getenv("REMEMBER_COOKIE_SECURE")
+if remember_cookie_secure is None:
+    remember_cookie_secure = default_secure_cookie
+class_app.config["REMEMBER_COOKIE_SECURE"] = str(remember_cookie_secure).lower() == "true"
 class_app.config["REMEMBER_COOKIE_HTTPONLY"] = True
 class_app.config["REMEMBER_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 
