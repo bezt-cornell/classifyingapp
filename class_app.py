@@ -124,6 +124,12 @@ class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lo
 class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 class_app.config["PREFERRED_URL_SCHEME"] = os.getenv("PREFERRED_URL_SCHEME", "https")
 class_app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
+class_app.config["SESSION_COOKIE_HTTPONLY"] = True
+class_app.config["SESSION_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+class_app.config["SESSION_COOKIE_NAME"] = os.getenv("SESSION_COOKIE_NAME", "session")
+class_app.config["REMEMBER_COOKIE_SECURE"] = os.getenv("REMEMBER_COOKIE_SECURE", "true").lower() == "true"
+class_app.config["REMEMBER_COOKIE_HTTPONLY"] = True
+class_app.config["REMEMBER_COOKIE_SAMESITE"] = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
 
 # Create Celery instance for background info fetching
 class_app.config.update(
@@ -364,6 +370,27 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
+
+@class_app.route('/debug_auth')
+def debug_auth():
+    """Expose auth/session diagnostics for load-balancer-based login troubleshooting."""
+    identity = get_authenticated_user_identity()
+    payload = {
+        "is_authenticated": current_user.is_authenticated,
+        "user_id": current_user.get_id() if current_user.is_authenticated else None,
+        "user_email": current_user.email if current_user.is_authenticated else None,
+        "session_keys": sorted(list(session.keys())),
+        "identity": identity,
+        "headers": {
+            "X-Forwarded-Email": request.headers.get("X-Forwarded-Email"),
+            "X-User-Email": request.headers.get("X-User-Email"),
+            "X-Forwarded-User": request.headers.get("X-Forwarded-User"),
+            "X-User-Name": request.headers.get("X-User-Name"),
+            "X-Forwarded-Proto": request.headers.get("X-Forwarded-Proto"),
+            "X-Forwarded-Host": request.headers.get("X-Forwarded-Host"),
+        },
+    }
+    return jsonify(payload)
 
 
 @class_app.route('/', methods=['GET', 'POST'])
