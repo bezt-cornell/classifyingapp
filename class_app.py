@@ -21,7 +21,7 @@ from dotenv import load_dotenv
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy import units as u
-from flask import Flask, app, jsonify, render_template, request, redirect, url_for, flash, session, send_file, make_response, g
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, session, send_file, make_response, g
 from flask_login import LoginManager, UserMixin, login_user, logout_user, current_user, login_required
 from flask_paginate import Pagination, get_page_parameter, get_page_args
 from flask_sqlalchemy import SQLAlchemy
@@ -268,7 +268,7 @@ def load_user_from_alb(request):
         # Decode JWT header to find the Key ID (kid) and Region
         jwt_header = jwt.get_unverified_header(encoded_jwt)
         kid = jwt_header['kid']
-        region = app.config.get('AWS_REGION', 'us-east-1')
+        region = class_app.config.get('AWS_REGION', 'us-east-1')
         
         pub_key = get_alb_public_key(region, kid)
         
@@ -286,7 +286,7 @@ def load_user_from_alb(request):
             
         return user
     except Exception as e:
-        app.logger.error(f"ALB JWT validation failed: {e}")
+        logging.error(f"ALB JWT validation failed: {e}")
         return None
 
 # @login_manager.user_loader
