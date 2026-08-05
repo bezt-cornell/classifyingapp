@@ -246,6 +246,7 @@ def inject_search_form():
 
 def get_authenticated_user_identity():
     """Read the authenticated identity from headers set by the load balancer."""
+    logging.info("[AUTH DEBUG] path=%s headers=%s", request.path, dict(request.headers))
     email = request.headers.get("X-Forwarded-Email") or request.headers.get("X-User-Email")
     if not email:
         return None
