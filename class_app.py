@@ -9,6 +9,8 @@ from datetime import datetime
 from io import BytesIO
 import time
 import logging
+import jwt
+import requests
 from urllib.parse import quote
 from celery import shared_task
 import boto3
@@ -31,9 +33,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
-from ALBLoginManager import ALBLoginManager, alb_login_required
-
-
 
 # Imports from local files
 from models import db, User, Transient, Classification
@@ -142,7 +141,7 @@ class_app.config.update(
     CELERY_RESULT_BACKEND=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
 
-alb_manager = ALBLoginManager(class_app, region="us-east-1")
+
 
 celery = make_celery(class_app)
 
@@ -247,10 +246,53 @@ class SearchForm(FlaskForm):
     source_id = StringField('Source ID', validators=[DataRequired()])
     submit = SubmitField('Fetch Data')
 
-@login_manager.user_loader
-def load_user(user_id):
-    """Load user by ID."""
-    return User.query.get(int(user_id))
+# Cache public keys to avoid excessive network requests
+key_cache = {}
+
+def get_alb_public_key(region, kid):
+    cache_key = f"{region}-{kid}"
+    if cache_key in key_cache:
+        return key_cache[cache_key]
+    url = f"https://public-keys.auth.elb.{region}.amazonaws.com/{kid}"
+    pub_key = requests.get(url).text
+    key_cache[cache_key] = pub_key
+    return pub_key
+
+@login_manager.request_loader
+def load_user_from_alb(request):
+    encoded_jwt = request.headers.get('X-Amzn-Oidc-Data')
+    if not encoded_jwt:
+        return None  # Fall back to standard session cookie if header is missing
+    
+    try:
+        # Decode JWT header to find the Key ID (kid) and Region
+        jwt_header = jwt.get_unverified_header(encoded_jwt)
+        kid = jwt_header['kid']
+        region = app.config.get('AWS_REGION', 'us-east-1')
+        
+        pub_key = get_alb_public_key(region, kid)
+        
+        # Verify signature and expiration (ALB uses ES256 by default)
+        data = jwt.decode(encoded_jwt, pub_key, algorithms=['ES256'])
+        aws_user_id = data.get('sub')
+        email = data.get('email')
+        
+        # Find or auto-provision the user in your database
+        user = User.query.filter_by(alb_sub=aws_user_id).first()
+        if not user and email:
+            user = User(alb_sub=aws_user_id, email=email)
+            db.session.add(user)
+            db.session.commit()
+            
+        return user
+    except Exception as e:
+        app.logger.error(f"ALB JWT validation failed: {e}")
+        return None
+
+# @login_manager.user_loader
+# def load_user(user_id):
+#     """Load user by ID."""
+#     return User.query.get(int(user_id))
 
 @class_app.context_processor
 def inject_search_form():
@@ -402,7 +444,7 @@ def authorize():
         return redirect(url_for('login'))
 
 @class_app.route('/logout')
-@alb_login_required
+@login_required
 def logout():
     """Logout current user."""
     logout_user()
@@ -436,7 +478,7 @@ def debug_auth():
 
 
 @class_app.route('/', methods=['GET', 'POST'])
-@alb_login_required
+@login_required
 def index():
     """Render the main search form and handle search requests."""
     form = SearchForm()
@@ -460,7 +502,7 @@ def index():
 
 
 @class_app.route('/classify/<source_id>', methods=['POST'])
-@alb_login_required
+@login_required
 def classify(source_id):
     """Handle classification of a source by the current user."""
     classification = request.form.get('classification')
@@ -500,7 +542,7 @@ def classify(source_id):
     return redirect(url_for('random_transient'))
 
 @class_app.route('/classify/<source_id>', methods=['GET'])
-@alb_login_required
+@login_required
 def classify_source(source_id):
     """Render the classification page for a given source."""
     try:
@@ -581,14 +623,14 @@ def prefetch_transient_data(kowalski_session, user_id, last_source_id=None):
             transient_cache[user_id] = {'status': 'error'}
 
 @class_app.route('/prefetch_status', methods=['GET'])
-@alb_login_required
+@login_required
 def prefetch_status():
     user_id = current_user.get_id()
     status = transient_cache.get(user_id, {}).get('status', 'not_started')
     return jsonify({'status': status})
 
 @class_app.route('/retrieve_vlass_data/<source_id>', methods=['POST'])
-@alb_login_required
+@login_required
 def retrieve_vlass_data(source_id):
     """Retrieve VLASS data for the given source."""
     kowalski_session = logon()
@@ -630,7 +672,7 @@ def load_test_transients_ids():
     return df['source_id'].tolist()
 
 @class_app.route('/transients', methods=['GET'])
-@alb_login_required
+@login_required
 def list_transients():
     """List all transients with pagination."""
     page, per_page, offset = get_page_args(
@@ -686,7 +728,7 @@ def list_test_transients():
 
 
 @class_app.route('/export_test_transients', methods=['GET'])
-@alb_login_required
+@login_required
 def export_test_transients():
     """Export test transients data to Excel."""
     test_transients_ids = load_test_transients_ids()
@@ -791,7 +833,7 @@ def get_random_id(user_id, last_source_id=None):
     return random_source_id
 
 @class_app.route('/random_transient', methods=['GET'])
-@alb_login_required
+@login_required
 def random_transient():
     """Fetch a random transient, using prefetched data if available."""
     user_id = current_user.get_id()
@@ -861,7 +903,7 @@ def random_transient():
         return redirect(url_for('classify_source', source_id=new_source_id))
 
 @class_app.route('/user_classifications')
-@alb_login_required
+@login_required
 def user_classifications():
     """Display a table of user's classifications."""
     user_id = current_user.id
@@ -870,7 +912,7 @@ def user_classifications():
     return render_template('user_classifications.html', classifications=classifications, userid=user_id)
 
 @class_app.route('/delete_classification/<int:classification_id>', methods=['POST'])
-@alb_login_required
+@login_required
 def delete_classification(classification_id):
     """Delete a classification by its ID."""
     classification = Classification.query.get_or_404(classification_id)
