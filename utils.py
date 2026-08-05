@@ -46,6 +46,10 @@ from astroquery.sdss import SDSS
 # JSON handling
 import json
 
+import boto3
+from botocore.exceptions import ClientError
+from aws_secretsmanager_caching import SecretCache, SecretCacheConfig
+
 # External utility modules
 from ztfquery.utils import stamps
 
@@ -62,6 +66,27 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[logging.StreamHandler()],
 )
+
+_secret_cache = None
+
+
+def get_secret_cache(region_name):
+    global _secret_cache
+    if _secret_cache is None:
+        client = boto3.client("secretsmanager", region_name=region_name)
+        _secret_cache = SecretCache(SecretCacheConfig(), client)
+    return _secret_cache
+
+
+def get_secret(secret_name, region_name=None):
+    region_name = region_name or os.getenv("AWS_REGION", "us-east-1")
+    try:
+        cache = get_secret_cache(region_name)
+        secret_string = cache.get_secret_string(secret_name)
+        return json.loads(secret_string)
+    except ClientError as e:
+        print(f"Error retrieving secret: {e}")
+        raise e
 
 
 def make_celery(app):
@@ -94,25 +119,6 @@ if os.getenv("FLASK_ENV") == "development":
 else:
     # Load secrets from AWS Secrets Manager
     print("Loading secrets from AWS Secrets Manager for production...")
-    import boto3
-    from botocore.exceptions import ClientError
-
-    def get_secret(secret_name, region_name):
-        # Create a Secrets Manager client
-        session = boto3.session.Session()
-        client = session.client(
-            service_name="secretsmanager", region_name=region_name
-        )
-
-        try:
-            response = client.get_secret_value(SecretId=secret_name)
-        except ClientError as e:
-            print(f"Error retrieving secret: {e}")
-            raise e
-
-        # Decrypts secret using the associated KMS key
-        secret_string = response["SecretString"]
-        return json.loads(secret_string)
 
     # Retrieve secrets for Kowalski and MAST CasJobs
     kowalski_secrets = get_secret("kowalski-secrets", "us-east-1")
@@ -125,31 +131,14 @@ else:
 
 
 def get_google_oauth_credentials():
-    secret_name = "your-google-oauth-secret-name"
-    region_name = "us-east-1"  # Change to your AWS region
+    secret_name = os.getenv("GOOGLE_OAUTH_SECRET_NAME", "your-google-oauth-secret-name")
+    region_name = os.getenv("AWS_REGION", "us-east-1")
 
-    # Create a Secrets Manager client
-    session = boto3.session.Session()
-    client = session.client(
-        service_name='secretsmanager',
-        region_name=region_name
-    )
+    credentials = get_secret(secret_name, region_name)
 
-    try:
-        response = client.get_secret_value(SecretId=secret_name)
-    except ClientError as e:
-        print(f"Error retrieving secret: {e}")
-        raise e
+    client_id = credentials.get("clientId") or credentials.get("client_id")
+    client_secret = credentials.get("clientSecret") or credentials.get("client_secret")
 
-    # Decrypts secret using the associated KMS key
-    secret_string = response['SecretString']
-    
-    # Parse the JSON string into a Python dictionary
-    credentials = json.loads(secret_string)
-    
-    client_id = credentials.get('clientId')
-    client_secret = credentials.get('clientSecret')
-    
     return client_id, client_secret
 
 # Reading data from CSV

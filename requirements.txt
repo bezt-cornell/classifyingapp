@@ -51,6 +51,7 @@ redis
 
 cachetools
 boto3
+aws-secretsmanager-caching
 dash 
 plotly
 astroquery

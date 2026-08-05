@@ -11,6 +11,7 @@ from urllib.parse import quote
 from celery import shared_task
 import boto3
 from botocore.exceptions import ClientError
+from aws_secretsmanager_caching import SecretCache, SecretCacheConfig
 
 from dotenv import load_dotenv
 import pandas as pd
@@ -59,9 +60,62 @@ logging.basicConfig(level=logging.DEBUG,
                         logging.FileHandler("debug.log"),
                         logging.StreamHandler()
                     ])
+def use_aws_secrets_manager():
+    return os.getenv("USE_AWS_SECRETS_MANAGER", "false").lower() == "true"
+
+
+def get_secrets_manager_client():
+    kwargs = {"region_name": os.getenv("AWS_REGION", "us-east-1")}
+    return boto3.client("secretsmanager", **kwargs)
+
+
+_cache = None
+
+
+def get_secret_cache():
+    global _cache
+    if _cache is None:
+        client = get_secrets_manager_client()
+        _cache = SecretCache(SecretCacheConfig(), client)
+    return _cache
+
+
+def get_secret(secret_name):
+    if not secret_name:
+        return {}
+    try:
+        cache = get_secret_cache()
+        secret_string = cache.get_secret_string(secret_name)
+        return json.loads(secret_string)
+    except ClientError as exc:
+        logging.warning("Unable to read secret %s: %s", secret_name, exc)
+    except Exception as exc:
+        logging.warning("Unable to parse secret %s: %s", secret_name, exc)
+    return {}
+
+
 # Create flask app instance
+def load_secret_key_from_secrets():
+    if not use_aws_secrets_manager():
+        return None
+
+    secret_name = os.getenv("AWS_SECRETS_NAME", "")
+    if not secret_name:
+        return None
+
+    secrets = get_secret(secret_name)
+    if not secrets:
+        return None
+
+    secret_key = secrets.get("SECRET_KEY") or secrets.get("secret_key")
+    if secret_key:
+        os.environ["SECRET_KEY"] = secret_key
+    return secret_key
+
+
+secret_key = load_secret_key_from_secrets() or os.getenv("SECRET_KEY", "your_secret_key_here")
 class_app = Flask(__name__)
-class_app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key_here")
+class_app.config["SECRET_KEY"] = secret_key
 class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lower() == "true"
 class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -77,29 +131,6 @@ celery = make_celery(class_app)
 transient_cache = TTLCache(maxsize=10, ttl=600)
 
 csrf = CSRFProtect(class_app)
-
-
-def get_secrets_manager_client():
-    kwargs = {"region_name": os.getenv("AWS_REGION", "us-east-1")}
-    return boto3.client("secretsmanager", **kwargs)
-
-
-def get_secret(secret_name):
-    if not secret_name:
-        return {}
-    try:
-        client = get_secrets_manager_client()
-        response = client.get_secret_value(SecretId=secret_name)
-        return json.loads(response["SecretString"])
-    except ClientError as exc:
-        logging.warning("Unable to read secret %s: %s", secret_name, exc)
-    except Exception as exc:
-        logging.warning("Unable to parse secret %s: %s", secret_name, exc)
-    return {}
-
-
-def use_aws_secrets_manager():
-    return os.getenv("USE_AWS_SECRETS_MANAGER", "false").lower() == "true"
 
 
 def build_database_uri():
@@ -176,6 +207,7 @@ def load_aws_secrets():
         os.environ["client_secret"] = secrets["client_secret"]
 
 
+load_secret_key_from_secrets()
 load_aws_secrets()
 class_app.config["SQLALCHEMY_DATABASE_URI"] = build_database_uri()
 
