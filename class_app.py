@@ -25,6 +25,7 @@ from flask_wtf import FlaskForm
 from flask_wtf.csrf import CSRFProtect
 from authlib.integrations.flask_client import OAuth
 from sqlalchemy import inspect, text
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.utils import secure_filename
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
@@ -94,7 +95,7 @@ def get_secret(secret_name):
     return {}
 
 
-# Create flask app instance
+# load 
 def load_secret_key_from_secrets():
     if not use_aws_secrets_manager():
         return None
@@ -114,10 +115,15 @@ def load_secret_key_from_secrets():
 
 
 secret_key = load_secret_key_from_secrets() or os.getenv("SECRET_KEY", "your_secret_key_here")
+
+# Create flask app instance
 class_app = Flask(__name__)
+class_app.wsgi_app = ProxyFix(class_app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 class_app.config["SECRET_KEY"] = secret_key
 class_app.config["WTF_CSRF_ENABLED"] = os.getenv("WTF_CSRF_ENABLED", "False").lower() == "true"
 class_app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+class_app.config["PREFERRED_URL_SCHEME"] = os.getenv("PREFERRED_URL_SCHEME", "https")
+class_app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "true").lower() == "true"
 
 # Create Celery instance for background info fetching
 class_app.config.update(
@@ -257,17 +263,30 @@ def login():
         return redirect(url_for('index'))
     return render_template('login.html')
 
+def get_oauth_redirect_uri():
+    configured_uri = os.getenv("OAUTH_REDIRECT_URI")
+    if configured_uri:
+        return configured_uri
+    return url_for('authorize', _external=True)
+
+
 @class_app.route('/login/google')
 def login_google():
     """Redirect the user to Google for OAuth authentication."""
-    redirect_uri = url_for('authorize', _external=True)
+    redirect_uri = get_oauth_redirect_uri()
     return oauth.google.authorize_redirect(redirect_uri)
 
-@class_app.route('/authorize')
-def authorize():
-    """Handle the OAuth callback from Google."""
-    token = oauth.google.authorize_access_token()
-    user_info = oauth.google.get('userinfo').json()
+
+def handle_oauth_callback():
+    """Handle the OAuth callback from the identity provider."""
+    try:
+        token = oauth.google.authorize_access_token()
+        user_info = oauth.google.get('userinfo').json()
+    except Exception as exc:
+        logging.exception("OAuth callback failed")
+        flash('Authentication failed. Please try again.')
+        return redirect(url_for('login'))
+
     if not user_info or 'email' not in user_info:
         flash('Authentication failed. Please try again.')
         return redirect(url_for('login'))
@@ -296,6 +315,14 @@ def authorize():
     login_user(user, remember=True)
     flash('Logged in successfully.', 'success')
     return redirect(url_for('index'))
+
+
+@class_app.route('/authorize')
+@class_app.route('/oauth2/idpresponse')
+@class_app.route('/login/google/callback')
+def authorize():
+    """Handle the OAuth callback from Google or an identity provider redirect."""
+    return handle_oauth_callback()
 
 @class_app.route('/logout')
 @login_required
