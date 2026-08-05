@@ -285,7 +285,7 @@ def load_user_from_alb(request):
         data = jwt.decode(encoded_jwt, pub_key, algorithms=['ES256'])
         aws_user_id = data.get('sub')
         email = data.get('email')
-        
+        print("[ALB DEBUG] JWT decoded successfully: sub =", aws_user_id, "email =", email)
         # Find or auto-provision the user in your database
         user = User.query.filter_by(alb_sub=aws_user_id).first()
         if not user and email:
