@@ -33,7 +33,7 @@ from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
 from ALBLoginManager import ALBLoginManager, alb_login_required
 
-alb_manager = ALBLoginManager(app, region="us-east-1")
+
 
 # Imports from local files
 from models import db, User, Transient, Classification
@@ -141,6 +141,8 @@ class_app.config.update(
     CELERY_BROKER_URL=os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"),
     CELERY_RESULT_BACKEND=os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
 )
+
+alb_manager = ALBLoginManager(class_app, region="us-east-1")
 
 celery = make_celery(class_app)
 
