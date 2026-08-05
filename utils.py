@@ -69,7 +69,9 @@ logging.basicConfig(
 
 _secret_cache = None
 secret_name = os.getenv("AWS_SECRET_NAME")
+print(f"Using AWS secret name: {secret_name}")
 region_name = os.getenv("AWS_REGION")
+print(f"Using AWS region: {region_name}")
 
 def get_secret_cache(region_name):
     global _secret_cache
