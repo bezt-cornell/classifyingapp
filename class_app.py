@@ -402,7 +402,7 @@ def authorize():
         return redirect(url_for('login'))
 
 @class_app.route('/logout')
-@login_required
+@alb_login_required
 def logout():
     """Logout current user."""
     logout_user()
@@ -460,7 +460,7 @@ def index():
 
 
 @class_app.route('/classify/<source_id>', methods=['POST'])
-@login_required
+@alb_login_required
 def classify(source_id):
     """Handle classification of a source by the current user."""
     classification = request.form.get('classification')
@@ -500,7 +500,7 @@ def classify(source_id):
     return redirect(url_for('random_transient'))
 
 @class_app.route('/classify/<source_id>', methods=['GET'])
-@login_required
+@alb_login_required
 def classify_source(source_id):
     """Render the classification page for a given source."""
     try:
@@ -581,14 +581,14 @@ def prefetch_transient_data(kowalski_session, user_id, last_source_id=None):
             transient_cache[user_id] = {'status': 'error'}
 
 @class_app.route('/prefetch_status', methods=['GET'])
-@login_required
+@alb_login_required
 def prefetch_status():
     user_id = current_user.get_id()
     status = transient_cache.get(user_id, {}).get('status', 'not_started')
     return jsonify({'status': status})
 
 @class_app.route('/retrieve_vlass_data/<source_id>', methods=['POST'])
-@login_required
+@alb_login_required
 def retrieve_vlass_data(source_id):
     """Retrieve VLASS data for the given source."""
     kowalski_session = logon()
@@ -630,7 +630,7 @@ def load_test_transients_ids():
     return df['source_id'].tolist()
 
 @class_app.route('/transients', methods=['GET'])
-@login_required
+@alb_login_required
 def list_transients():
     """List all transients with pagination."""
     page, per_page, offset = get_page_args(
@@ -686,7 +686,7 @@ def list_test_transients():
 
 
 @class_app.route('/export_test_transients', methods=['GET'])
-@login_required
+@alb_login_required
 def export_test_transients():
     """Export test transients data to Excel."""
     test_transients_ids = load_test_transients_ids()
@@ -791,7 +791,7 @@ def get_random_id(user_id, last_source_id=None):
     return random_source_id
 
 @class_app.route('/random_transient', methods=['GET'])
-@login_required
+@alb_login_required
 def random_transient():
     """Fetch a random transient, using prefetched data if available."""
     user_id = current_user.get_id()
@@ -861,7 +861,7 @@ def random_transient():
         return redirect(url_for('classify_source', source_id=new_source_id))
 
 @class_app.route('/user_classifications')
-@login_required
+@alb_login_required
 def user_classifications():
     """Display a table of user's classifications."""
     user_id = current_user.id
@@ -870,7 +870,7 @@ def user_classifications():
     return render_template('user_classifications.html', classifications=classifications, userid=user_id)
 
 @class_app.route('/delete_classification/<int:classification_id>', methods=['POST'])
-@login_required
+@alb_login_required
 def delete_classification(classification_id):
     """Delete a classification by its ID."""
     classification = Classification.query.get_or_404(classification_id)
