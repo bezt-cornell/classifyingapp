@@ -283,6 +283,7 @@ def load_user_from_alb(request):
         
         # Verify signature and expiration (ALB uses ES256 by default)
         data = jwt.decode(encoded_jwt, pub_key, algorithms=['ES256'])
+        print(data)
         aws_user_id = data.get('sub')
         email = data.get('email')
         print("[ALB DEBUG] JWT decoded successfully: sub =", aws_user_id, "email =", email)
